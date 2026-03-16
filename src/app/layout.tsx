@@ -16,6 +16,11 @@ export const metadata: Metadata = {
   title: "0x01 Mesh Explorer | Real-Time Network Activity",
   description:
     "Explore the 0x01 decentralized agent mesh network. Real-time visualization of agents, quests, and on-chain activity across the globe.",
+  icons: {
+    icon: "/icon",
+    shortcut: "/icon",
+    apple: "/icon",
+  },
   openGraph: {
     title: "0x01 Mesh Explorer",
     description:
