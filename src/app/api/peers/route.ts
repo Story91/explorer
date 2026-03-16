@@ -4,7 +4,9 @@ import { generateMockAgents } from "@/lib/mock";
 // Proxies to aggregator GET /agents?sort=recent&limit=200
 // Returns AgentReputation[] — the globe uses country/city for coordinates
 export async function GET() {
-  if (process.env.USE_MOCK_DATA === "true") {
+  const strictReal = process.env.STRICT_REAL_DATA === "true";
+
+  if (!strictReal && process.env.USE_MOCK_DATA === "true") {
     return NextResponse.json(generateMockAgents());
   }
 
@@ -29,6 +31,12 @@ export async function GET() {
     const agents = Array.isArray(data) ? data : data.value ?? [];
     return NextResponse.json(agents);
   } catch {
+    if (strictReal) {
+      return NextResponse.json(
+        { error: "Upstream unavailable" },
+        { status: 502 }
+      );
+    }
     return NextResponse.json(generateMockAgents());
   }
 }

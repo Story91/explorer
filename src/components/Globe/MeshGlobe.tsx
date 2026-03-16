@@ -45,6 +45,10 @@ const EVENT_COLORS: Record<string, [string, string]> = {
   JOIN: ["#00f0ffcc", "#00ff88aa"],
 };
 
+const LIVE_ARC_STROKE = 0.55;
+const DISPUTE_ARC_STROKE = 0.75;
+const STATIC_ARC_STROKE = 0.2;
+
 export function MeshGlobe({ agents, events, beaconBpm = 0, onAgentClick }: MeshGlobeProps) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
@@ -77,7 +81,7 @@ export function MeshGlobe({ agents, events, beaconBpm = 0, onAgentClick }: MeshG
     }
   }, []);
 
-  // Resolve agent_id to globe coordinates
+  // Resolve agent_id to globe coordinates (only for agents currently rendered).
   const agentGeoMap = useMemo(() => {
     const map = new Map<string, { lat: number; lng: number }>();
     for (const a of agents) {
@@ -85,6 +89,15 @@ export function MeshGlobe({ agents, events, beaconBpm = 0, onAgentClick }: MeshG
     }
     return map;
   }, [agents]);
+
+  // Bootstrap lookup used for JOIN/untargeted events.
+  const bootstrapGeoMap = useMemo(() => {
+    const map = new Map<string, { lat: number; lng: number }>();
+    for (const n of BOOTSTRAP_NODES) {
+      map.set(`bootstrap-${n.label}`, { lat: n.lat, lng: n.lng });
+    }
+    return map;
+  }, []);
 
   // Convert real-time events into arcs on the globe
   useEffect(() => {
@@ -101,13 +114,20 @@ export function MeshGlobe({ agents, events, beaconBpm = 0, onAgentClick }: MeshG
 
     const newArcs: LiveArc[] = [];
     for (const ev of unseen) {
-      const from = agentGeoMap.get(ev.agent_id) ?? geoFromId(ev.agent_id);
+      // Draw arcs only from visible/rendered agents to keep line origins exact.
+      const from = agentGeoMap.get(ev.agent_id);
+      if (!from) continue;
       let to: { lat: number; lng: number };
 
       if (ev.target_id) {
-        to = agentGeoMap.get(ev.target_id) ?? geoFromId(ev.target_id);
+        // If target agent is not visible on current map data, skip the arc.
+        const target = agentGeoMap.get(ev.target_id);
+        if (!target) continue;
+        to = target;
       } else {
-        to = nearestBootstrap(from.lat, from.lng);
+        const nearest = nearestBootstrap(from.lat, from.lng);
+        const bootstrapKey = `bootstrap-${nearest.label}`;
+        to = bootstrapGeoMap.get(bootstrapKey) ?? nearest;
       }
 
       if (Math.abs(from.lat - to.lat) < 0.5 && Math.abs(from.lng - to.lng) < 0.5) continue;
@@ -118,7 +138,7 @@ export function MeshGlobe({ agents, events, beaconBpm = 0, onAgentClick }: MeshG
         endLat: to.lat,
         endLng: to.lng,
         color: EVENT_COLORS[ev.event_type] ?? EVENT_COLORS.JOIN,
-        stroke: ev.event_type === "DISPUTE" ? 1.2 : 0.8,
+        stroke: ev.event_type === "DISPUTE" ? DISPUTE_ARC_STROKE : LIVE_ARC_STROKE,
         id: arcIdRef.current++,
       });
     }
@@ -126,7 +146,7 @@ export function MeshGlobe({ agents, events, beaconBpm = 0, onAgentClick }: MeshG
     if (newArcs.length === 0) return;
 
     setLiveArcs((prev) => [...newArcs, ...prev].slice(0, 12));
-  }, [events, agentGeoMap]);
+  }, [events, agentGeoMap, bootstrapGeoMap]);
 
   // Fade out old arcs
   useEffect(() => {
@@ -142,7 +162,7 @@ export function MeshGlobe({ agents, events, beaconBpm = 0, onAgentClick }: MeshG
   const points: PointData[] = useMemo(() => {
     const agentPoints: PointData[] = [];
     for (const a of agents) {
-      const geo = resolveGeo(a.country, a.city) ?? geoFromId(a.agent_id);
+      const geo = agentGeoMap.get(a.agent_id) ?? geoFromId(a.agent_id);
       const isActive = Date.now() / 1000 - a.last_seen < 300;
       const hasRealGeo = !!(a.country || a.city);
 
@@ -170,17 +190,17 @@ export function MeshGlobe({ agents, events, beaconBpm = 0, onAgentClick }: MeshG
     }));
 
     return [...agentPoints, ...bootstrapPoints];
-  }, [agents]);
+  }, [agents, agentGeoMap]);
 
   // Static arcs: active agents → nearest bootstrap
   const staticArcs = useMemo(() => {
     return agents
       .filter((a) => {
-        const geo = resolveGeo(a.country, a.city);
+        const geo = agentGeoMap.get(a.agent_id);
         return geo && Date.now() / 1000 - a.last_seen < 300;
       })
       .map((a) => {
-        const geo = resolveGeo(a.country, a.city)!;
+        const geo = agentGeoMap.get(a.agent_id)!;
         const bootstrap = nearestBootstrap(geo.lat, geo.lng);
         return {
           startLat: geo.lat,
@@ -188,11 +208,11 @@ export function MeshGlobe({ agents, events, beaconBpm = 0, onAgentClick }: MeshG
           endLat: bootstrap.lat,
           endLng: bootstrap.lng,
           color: ["#00f0ff33", "#00ff8822"] as [string, string],
-          stroke: 0.3,
+          stroke: STATIC_ARC_STROKE,
           id: -1,
         };
       });
-  }, [agents]);
+  }, [agents, agentGeoMap]);
 
   const allArcs = useMemo(() => [...liveArcs, ...staticArcs], [liveArcs, staticArcs]);
 
@@ -237,7 +257,7 @@ export function MeshGlobe({ agents, events, beaconBpm = 0, onAgentClick }: MeshG
         pointLng="lng"
         pointRadius="size"
         pointColor="color"
-        pointAltitude={0.01}
+        pointAltitude={0}
         pointsMerge={false}
         onPointClick={handlePointClick}
         arcsData={allArcs}
@@ -250,7 +270,7 @@ export function MeshGlobe({ agents, events, beaconBpm = 0, onAgentClick }: MeshG
         arcDashGap={0.3}
         arcDashAnimateTime={1200}
         arcStroke={(d: object) => (d as LiveArc).stroke ?? 0.5}
-        arcAltitudeAutoScale={0.4}
+        arcAltitudeAutoScale={0.34}
         ringsData={rings}
         ringLat="lat"
         ringLng="lng"

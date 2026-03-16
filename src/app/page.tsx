@@ -14,11 +14,26 @@ import { BOOTSTRAP_NODES } from "@/lib/geo";
 import type { AgentReputation } from "@/types/events";
 
 export default function Explorer() {
-  const { events, connected, isLive } = useActivityStream();
-  const { data: networkStats } = useKPIData();
-  const { agents } = usePeers();
+  const activity = useActivityStream();
+  const kpi = useKPIData();
+  const peers = usePeers();
+  const { events, connected, isLive } = activity;
+  const { data: networkStats } = kpi;
+  const { agents } = peers;
   const [selectedAgent, setSelectedAgent] = useState<AgentReputation | null>(
     null
+  );
+
+  const dataMode = useMemo<"live" | "mock" | "error">(() => {
+    const modes = [activity.mode, kpi.mode, peers.mode];
+    if (modes.includes("error")) return "error";
+    if (modes.includes("mock")) return "mock";
+    return "live";
+  }, [activity.mode, kpi.mode, peers.mode]);
+
+  const dataErrors = useMemo(
+    () => [activity.error, kpi.error, peers.error].filter(Boolean) as string[],
+    [activity.error, kpi.error, peers.error]
   );
 
   const activeAgentCount = useMemo(() => {
@@ -28,9 +43,17 @@ export default function Explorer() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Header connected={connected} />
+      <Header connected={connected} dataMode={dataMode} />
 
       <main className="flex-1 pt-14">
+        {dataMode === "error" && (
+          <section className="mx-auto max-w-[1920px] px-4 pt-4 lg:px-8">
+            <div className="glass border border-neon-red/25 px-4 py-3 text-xs text-neon-red">
+              Real data mode is active, but one or more data sources failed.
+              {dataErrors.length > 0 ? ` ${dataErrors[0]}` : ""}
+            </div>
+          </section>
+        )}
         {/* Globe + Ticker — full height */}
         <section className="mx-auto max-w-[1920px] px-4 pt-4 lg:px-8">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px]">

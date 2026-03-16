@@ -6,9 +6,10 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ agentId: string }> }
 ) {
+  const strictReal = process.env.STRICT_REAL_DATA === "true";
   const { agentId } = await params;
 
-  if (process.env.USE_MOCK_DATA === "true") {
+  if (!strictReal && process.env.USE_MOCK_DATA === "true") {
     return NextResponse.json({
       agent_id: agentId,
       name: "mock-agent",
